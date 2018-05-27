@@ -1,0 +1,152 @@
+---
+title: "ML Course Project"
+author: "Erick Gonzalez"
+date: "May 27, 2018"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+##Introduction:
+This project is part of the Practical Machine Learning course from Coursera. The main goal is to generate an algorithm to predict the manner ("how well") an individual performs a particular activity, for this exercise we will be evaluating dumbbell lifts using the "Weight Lifting Exercises Dataset" from the following web site http://groupware.les.inf.puc-rio.br/har#weight_lifting_exercises. 
+The motivation for this model was described in the [Qualitative Activity Recognition of Weight Lifting Exercises](http://groupware.les.inf.puc-rio.br/work.jsf?p1=11201) paper as follows:
+"This human activity recognition research has traditionally focused on discriminating between different activities, i.e. to predict "which" activity was performed at a specific point in time (like with the Daily Living Activities dataset above). The approach we propose for the Weight Lifting Exercises dataset is to investigate "how (well)" an activity was performed by the wearer. The "how (well)" investigation has only received little attention so far, even though it potentially provides useful information for a large variety of applications, such as sports training."
+This report will describe some of the steps taken to build and chose a model for this task, how you used cross validation was used, and expectations for in and out of sample errors. 
+
+##System & R packages 
+This machine learning analysis was done in R using the following platform and packages:
+```{r loadlibrary, echo=FALSE, message=FALSE, warning=FALSE}
+library(caret)
+library(ggplot2)
+library(readr)
+library(dplyr)
+library(doParallel)
+rinfo<-sessionInfo()
+```
+
+Platform: `r rinfo$platform `  
+R Version: `r rinfo$R.version["version.string"] `  
+OS Version: `r rinfo$running `  
+Libraries: doParallel_1.0.11, dplyr_0.7.1, readr_1.1.1, caret_6.0-78, ggplot2_2.2.1, lattice_0.20-35 
+
+
+##Weight Lifting Exercises Dataset
+
+```{r loadData, echo=FALSE, message=FALSE, warning=FALSE, cache=TRUE}
+##Set working Directory
+##read data from csv file
+pml_training<-read_csv('data/pml-training.csv', guess_max = 20000)
+pml_testing<-read_csv('data/pml-testing.csv', guess_max = 20000)
+##remove columns that have almost no data or values
+cleanData<-pml_training[,colMeans(is.na(pml_training))==0]
+##remove columns that don't have meaningfull information
+cleanData<-cleanData[,-(1:7)]
+vars2keep<-names(cleanData)
+```
+
+
+The dataset includes information from 6 participants who did the dumbbell lift exercise in 5 different ways A, B, C, D and E. A being the correct way of performing the exercise. The data was provided in two .csv files. pml-training.csv with `r nrow(pml_training)` records and `r ncol(pml_training)` columns which will be used to build and cross validate the model. And pml-testing.csv with `r nrow(pml_testing)` records that doesn't include labels (found in column classe) and that will be used to test the final model.
+
+After some data exploration it was identified that only `r sum(colMeans(is.na(pml_training))==0)`columns have information for all the records and only these will be used to build the models. 
+
+The first seven columns were also removed as they don't provide any useful information for this exercise. These are: `r names(pml_training[,1:7])`.
+
+##Data Split for Training/Testing/Validation
+
+```{r partitionData, echo=FALSE, message=FALSE, warning=FALSE, cache=TRUE}
+##split dataset into validation, training and testing
+##20% validation
+##80% --> 30% testing+ 70% training
+
+set.seed(1982)
+invalidate<-createDataPartition(cleanData$classe, p=0.2, list = F)
+validating<-cleanData[invalidate,]
+model_build<-cleanData[-invalidate,]
+intrain<-createDataPartition(model_build$classe, p=0.7, list=F)
+training<-model_build[intrain,]
+testing<-model_build[-intrain,]
+
+```
+The original pml_Training dataset was split into three groups. 20% was set aside for last step validation and the remaining 80% was split into Test (30%) and Training (70%) sets.
+The final counts were as follows: Training: `r nrow(training)`, Testing `r nrow(testing)` and Validation `r nrow(validating)`.
+
+We explored the training dataset to see if all factors in the output variable "classe" have sufficient representations in order to build an accurate model. 
+
+```{r echo=FALSE, fig.height=2, fig.align='center'}
+qplot(training$classe, ylab="Frequency", xlab = "Class", main = "Training set - Class Frequency")
+```
+
+##Model Training and Cross Validation
+Overall 3 classification models were fitted to identify the one with the most accuracy. All three models were fitted with a "Repeated cross Validation" with 10 folds and 3 repeats. The doParallel package was used to improve the processing time.
+
+1. the first classification model was built using Random Forest, using all 52 variables and without adjusting any parameters for tunning. Overall accuracy on the testing set was pretty good. 
+
+2. The second classification model was also built using Random Forest but tunned to do a larger random search for a more optimal mtry value using the tuneLength option. This model gave the best result but the processing time was significantly higher than the other two models. Ultimatly this model was selected to predict on the validation set.
+
+3. The third classification model was built using Boosting with trees and the gbm method. No optimization or customized tunning was performed. The Accuracy of this model was infirior to the other two models. 
+
+```{r model1, echo=FALSE}
+mdl1<-readRDS("mdl1_rf_notunning.rds")
+mdl2<-readRDS("mdl2_rf_tunning.rds")
+mdl3<-readRDS("mdl3_gbm.rds")
+pred1<-predict(mdl1, newdata = testing)
+pred2<-predict(mdl2, newdata = testing)
+pred3<-predict(mdl3, newdata = testing)
+
+Model<-c("Model 1", "Model 2", "Model 3")
+Method <-c(" rf - Random Forest", "rf - Random Forest", "gbm - ")
+conf1<-as.matrix(confusionMatrix(pred1, testing$classe), what = "overall")["Accuracy",]
+conf2<-as.matrix(confusionMatrix(pred2, testing$classe), what = "overall")["Accuracy",]
+conf3<-as.matrix(confusionMatrix(pred3, testing$classe), what = "overall")["Accuracy",]
+Accuracy<-bind_rows(conf1, conf2, conf3)
+model_summary<-cbind.data.frame(Model, Method, Accuracy)
+knitr::kable(model_summary, col.names = c("Model", "Method", "Testing Set Accuracy"))
+
+```
+
+##Selected Model
+The selected Random Forest model tested 14 different mtry values and the best tuning paraetar was selectad based on Accuracy. In the plot below we can see the Mtry values vs Accuracy for each value. 
+```{r finalModel, echo=FALSE, fig.height=4, fig.show='hold', fig.align='center'}
+
+plot(mdl2)
+
+```
+
+Based on their predictive value of all the trees in the random forest combined the model provides a rank of the importance of each varialbe. Below are the top 10 variables in order of importance.
+```{r varImp, echo=FALSE, fig.height=3, fig.align='center'}
+plot(varImp(mdl2), top=10)
+```
+
+##Validation Test
+For the last step before predicting the values of the pml_testing set that doesn't have labels we test our model once with the validation test and check the out of sample Accuracy by looking at the confusionMatrix.
+
+```{r validation, echo=FALSE }
+    predValidation<-predict(mdl2, validating)
+    validationCM<-confusionMatrix(predValidation, validating$classe)
+ 
+```
+
+Overall Accuracy: `r validationCM$overall["Accuracy"]`
+```{r validationTable, echo=FALSE}
+validationCM$table
+
+```
+
+##Predicting on pml_testing data set
+The final goal of this project was to predict the class of 20 unlabeled records. Using the model we selected on the pml_testing dataset we predict the following values: 
+
+```{r Predicted, echo=FALSE}
+finalPredict<-predict(mdl2, pml_testing)
+table(finalPredict)
+
+```
+
+##Conclussion
+After fitting multipe models to accuratly determine if an individual is performing a dumbbell lift correctly, we can see that all three models achived a high rate of accuracy. However, the significant increase in processing time to obtain the best model might not justify the gain in accuracy compared to the initial Random Forest from our first model where no particular tunning was applied. For larger datasets in a real life scenario it might be best to find a proper tradeoff between processing time and accuracy. 
+
+
+
+
+
