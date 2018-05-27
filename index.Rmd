@@ -120,7 +120,7 @@ plot(varImp(mdl2), top=10)
 ```
 
 ##Validation Test
-For the last step before predicting the values of the pml_testing set that doesn't have labels we test our model once with the validation test and check the out of sample Accuracy by looking at the confusionMatrix.
+For the last step before predicting the values of the pml_testing set that doesn't have labels we test our model once with the validation test and check the out of sample Accuracy by looking at the confusionMatrix. This Accuracy or slightly lower is what we should expect when predicting on new records without labels.
 
 ```{r validation, echo=FALSE }
     predValidation<-predict(mdl2, validating)
@@ -140,6 +140,8 @@ The final goal of this project was to predict the class of 20 unlabeled records.
 ```{r Predicted, echo=FALSE}
 finalPredict<-predict(mdl2, pml_testing)
 table(finalPredict)
+
+finalPredict
 
 ```
 
